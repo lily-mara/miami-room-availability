@@ -1,0 +1,9 @@
+[package]
+authors = ["Nate Mara <natemara@gmail.com>"]
+name = "miami-room"
+version = "0.1.0"
+
+[dependencies]
+lazy_static = "0.2.1"
+regex = "0.1.69"
+select = "0.3.0"

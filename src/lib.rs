@@ -2,17 +2,19 @@
 extern crate lazy_static;
 extern crate select;
 extern crate regex;
+extern crate core;
 
 use select::document::Document;
 use select::predicate::{And, Class, Name};
 use std::convert::From;
 use std::collections::HashMap;
+use core::cmp::Ordering;
 
 lazy_static! {
     static ref ROOM_NAME_REGEX: regex::Regex = regex::Regex::new(r"King Study Room (\d+) - (\d+) Person").unwrap();
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Time {
     hour: u8,
     minute: u8,
@@ -38,7 +40,7 @@ pub struct KingStudyRoom {
     available: HashMap<Date, Vec<TimeRange>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub struct TimeRange {
     start: Time,
     end: Time,
@@ -84,6 +86,16 @@ impl Schedule {
 
         available
     }
+
+    pub fn find_available_ranges(&self, minutes: u8) -> HashMap<u16, Vec<TimeRange>> {
+        let mut map = HashMap::new();
+
+        for room in &self.rooms {
+            map.insert(room.room_number, room.find_available_ranges(minutes));
+        }
+
+        map
+    }
 }
 
 impl KingStudyRoom {
@@ -127,9 +139,11 @@ impl KingStudyRoom {
         if self.available.contains_key(&day) {
             let mut intervals = self.available.get_mut(&day).unwrap();
             intervals.push(range);
+            intervals.sort();
         } else {
             let mut intervals = Vec::new();
             intervals.push(range);
+            intervals.sort();
             self.available.insert(day, intervals);
         }
     }
@@ -144,6 +158,51 @@ impl KingStudyRoom {
             None => return false,
         }
         false
+    }
+
+    fn find_available_ranges(&self, minutes: u8) -> Vec<TimeRange> {
+        if minutes > 120 {
+            panic!("You can only reserve up to 2 hours at a time!");
+        }
+        let minutes = minutes as u32;
+        let mut length_so_far = 0u32;
+        let mut range = TimeRange::new(Time::new(0, 0), Time::new(0, 0));
+        let mut available = Vec::new();
+        let mut last;
+
+        for intervals in self.available.values() {
+            length_so_far = 0;
+            range = TimeRange::new(Time::new(0, 0), Time::new(0, 0));
+            last = TimeRange::new(Time::new(0, 0), Time::new(0, 0));
+
+            for x in intervals {
+                let interval = x.clone();
+                if length_so_far == 0 {
+                    range.start = interval.start;
+                    range.end = interval.end;
+                    length_so_far = interval.length_minutes();
+                } else if interval.start == last.end {
+                    range.end = interval.end;
+                    length_so_far += interval.length_minutes();
+                } else {
+                    if length_so_far >= minutes {
+                        available.push(range);
+                    }
+
+                    length_so_far = 0;
+                    range = TimeRange::new(Time::new(0, 0), Time::new(0, 0));
+                    last = TimeRange::new(Time::new(0, 0), Time::new(0, 0));
+                }
+
+                last = interval;
+            }
+
+            if length_so_far != 0 {
+                available.push(range);
+            }
+        }
+
+        available
     }
 }
 
@@ -193,6 +252,24 @@ impl Time {
     }
 }
 
+impl PartialOrd for Time {
+    fn partial_cmp(&self, other: &Time) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Time {
+    fn cmp(&self, other: &Time) -> Ordering {
+        if self.hour == other.hour && self.minute == other.minute {
+            Ordering::Equal
+        } else if self.as_minutes() < other.as_minutes() {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        }
+    }
+}
+
 impl TimeRange {
     pub fn new(start: Time, end: Time) -> TimeRange {
         TimeRange{start: start, end: end}
@@ -236,6 +313,22 @@ impl TimeRange {
     pub fn contains_time(&self, time: &Time) -> bool {
         let min = time.as_minutes();
         return self.start.as_minutes() <= min && min < self.end.as_minutes()
+    }
+
+    pub fn length_minutes(&self) -> u32 {
+        self.end.as_minutes() - self.start.as_minutes()
+    }
+}
+
+impl Ord for TimeRange {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.start.cmp(&other.start)
+    }
+}
+
+impl PartialOrd for TimeRange {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
